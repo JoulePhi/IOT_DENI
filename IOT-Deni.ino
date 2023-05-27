@@ -1,74 +1,121 @@
-#include <ArduinoJson.h>
+// SIM800L
 #include <Http.h>
-#include "uRTCLib.h"
 #define RST_PIN 8
-#define RX_PIN 10
+#define RX_PIN 10 
 #define TX_PIN 9
-
 const char BEARER[] PROGMEM = "internet";
+const char URL[] PROGMEM = "https://v1.nocodeapi.com/datadeni/google_sheets/xzDjIQomcfxkFnkz?tabId=Sheet1";
+HTTP http(9600, RX_PIN, TX_PIN, RST_PIN);
+
+// RTC
+#include "uRTCLib.h"
 uRTCLib rtc(0x68);
-// the setup routine runs once when you press reset:
+
+// TEMP
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#define ONE_WIRE_BUS 2
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+// EC
+#include "DFRobot_EC.h"
+#include <EEPROM.h>
+#define EC_PIN A1
+DFRobot_EC ec;
+
+
+// PH
+int pHSense = A0;
+
+// VARIABLES
+String loc,sTemp, sPh, sec;
+float temp = 0,measured = 0, ph = 0,ecRes = 0;
+
+#define delayReadLocaation 500
+#define delayReadTemp 500
+#define delayReadPh 500
+#define delayReadEc 500
+#define delaySaveData 5000
+
+unsigned long 
 void setup()
 {
   Serial.begin(9600);
   URTCLIB_WIRE.begin();
-  while (!Serial)
-    ;
-  Serial.println("Starting!");
+  sensors.begin();
+  ec.begin();
+  while (!Serial);
+  Serial.println(F("Starting!"));
 }
-
-// the loop routine runs over and over again forever:
+void(* resetFunc) (void) = 0;
 void loop()
 {
   rtc.refresh();
-  HTTP http(9600, RX_PIN, TX_PIN, RST_PIN);
   char response[32];
   char body[124];
   Result result;
   result = http.connect(BEARER);
   Serial.print(F("HTTP connect: "));
   Serial.println(result);
-  delay(1000);
-  Serial.println("READING LOCATION");
   delay(500);
-  String loc = http.getLocation();
-  Serial.println(loc);
-  sprintf(body, "[[\"%s\",\"%s\",\"%s\",\"10\",\"10\",\"10\"]]", loc.c_str(),getNowDate().c_str(),getNowTime().c_str());
-  Serial.println("Body : " + String(body) );
+  readLocation();
+  delay(500);
+  readTemp();
+  delay(500);
+  readPh();
+  delay(500);
+  readEc();
+  delay(500);
+  sprintf(body, "[[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]]", loc.c_str(),getNowDate().c_str(),getNowTime().c_str(),sPh.c_str(),sec.c_str(),sTemp.c_str());
+  Serial.println("Body : " + String(body));
   result = http.post("https://v1.nocodeapi.com/datadeni/google_sheets/xzDjIQomcfxkFnkz?tabId=Sheet1", body, response);
   Serial.print(F("HTTP POST: "));
   Serial.println(result);
   if (result == SUCCESS)
   {
     Serial.println(response);
-    StaticJsonBuffer<64> jsonBuffer;
-    JsonObject &root = jsonBuffer.parseObject(response);
-
-    const char *id = root[F("id")];
-    Serial.print(F("ID: "));
-    Serial.println(id);
   }else{
-    Serial.print("Error : ");
+    Serial.print(F("Error : "));
     Serial.println(response);
   }
   Serial.print(F("HTTP disconnect: "));
   Serial.print(http.disconnect());
+  delay(300000);
+  resetFunc();
 }
-String getNowDate(){
-  String date = "";
-  date += String(rtc.year());
-  date += "/";
-  date += String(rtc.month());
-  date += "/";
-  date += String(rtc.day());
-  return date;
+
+void readLocation(){
+  Serial.println(F("READING LOCATION"));
+  loc = http.getLocation();
+  Serial.println(loc);
 }
-String getNowTime(){
-  String time = "";
-  time += String(rtc.hour());
-  time += ":";
-  time += String(rtc.minute());
-  time += ":";
-  time += String(rtc.second());
-  return time;
+
+void readTemp(){
+  Serial.println(F("READING TEMPERATURE"));
+  for(int i=0; i < 10; i++){
+    sensors.requestTemperatures(); 
+    temp = sensors.getTempCByIndex(0);  
+    delay(500);
+  }
+  sTemp = String(temp,2);
+  Serial.println("Temp = " + sTemp);
+}
+
+void readPh(){
+  Serial.println(F("MEASURING PH"));
+  measured = measure(10);
+  ph = calculatePh(measured);
+  sPh = String(ph);
+  Serial.println("Ph : " + sPh);
+}
+
+void readEc(){
+  Serial.println(F("CALCULATING EC"));
+  for(int i=0; i < 10; i++){
+    ecRes = readEc(temp);  
+    delay(500);
+  }
+  sec = String(ecRes,2);
+  Serial.println("EC : " + sec);
 }
