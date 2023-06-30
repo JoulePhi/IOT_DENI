@@ -41,76 +41,43 @@ float temp = 0,measured = 0, ph = 0,ecRes = 0;
 #define delayReadEc 500
 #define delaySaveData 5000
 
-// Timer
-unsigned int refreshRtc = 0;
-unsigned int step1Time = 0;
-unsigned int step2Time = 0;
-unsigned int step3Time = 0;
-unsigned int step4Time = 0;
-unsigned int step5Time = 0;
-unsigned int step6Time = 0;
-unsigned int step7Time = 0;
-unsigned int step8Time = 0;
 
-unsigned int rtcInterval = 500; 
-unsigned int step1Interval = 500; 
-unsigned int step2Interval = step1Interval + 500; 
-unsigned int step3Interval = step2Interval + 500; 
-unsigned int step4Interval = step3Interval + 500; 
-unsigned int step5Interval = step4Interval + 500; 
-unsigned int step6Interval = step5Interval + 500; 
-unsigned int step7Interval = step6Interval + 500; 
-unsigned long step8Interval = step6Interval + 300000; 
-bool isOn[7] = {0,0,0,0,0,0,0};
 void setup()
 {
   Serial.begin(9600);
-  
+  Serial.println(F("Starting!"));
+  pinMode(8, OUTPUT);
+  digitalWrite(8, 0);
+  delay(2000);
+  digitalWrite(8,1);
   URTCLIB_WIRE.begin();
   sensors.begin();
   ec.begin();
-  while (!Serial);
-  Serial.println(F("Starting!"));
-  pinMode(5, OUTPUT);
-  if (gsm.begin(2400)){
-    Serial.println("\nstatus=READY");
-    started=true;  
-  }else Serial.println("\nstatus=IDLE");
+  
 }
 void(* resetFunc) (void) = 0;
 void loop()
 {
-  unsigned int currTime = millis();
-  if(currTime - refreshRtc >= rtcInterval){
-    rtc.refresh();
-    refreshRtc = currTime;
-  }
-  if(currTime - step2Time >= step2Interval && isOn[1] == 0){
-    readLocation();
-    isOn[1] = 1;
-  }
-  if(currTime - step3Time >= step3Interval && isOn[2] == 0){
-    readTemp();
-    isOn[2] = 1;
-  }
-  if(currTime - step4Time >= step4Interval && isOn[3] == 0){
-    readPh();
-    isOn[3] = 1;
-  }
-  if(currTime - step5Time >= step5Interval && isOn[4] == 0){
-    readPh();
-    isOn[4] = 1;
-  }
-  if(currTime - step6Time >= step6Interval && isOn[5] == 0){
-    readEc();
-    isOn[5] = 1;
-  }
-  if(currTime - step7Time >= step7Interval && isOn[6] == 0){
-    sprintf(body, "[[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]]", loc.c_str(),getNowDate().c_str(),getNowTime().c_str(),sPh.c_str(),sec.c_str(),sTemp.c_str());
-    Serial.println("Body : " + String(body));
-    if(started){
-    if (inet.attachGPRS("internet", "", ""))
-      Serial.println(F("status=ATTACHED"));
+  if (gsm.begin(2400)){
+    Serial.println(F("\nstatus=READY"));
+    started=true;  
+  }else Serial.println(F("\nstatus=IDLE"));
+  rtc.refresh();
+  delay(500);
+  readLocation();
+  delay(500);
+  readTemp();
+  delay(500);
+  readPh();
+  delay(500);
+  readEc();
+  delay(500);
+  rtc.refresh();
+  delay(1000);
+  sprintf(body, "[[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]]", loc.c_str(),getNowDate().c_str(),getNowTime().c_str(),sPh.c_str(),sec.c_str(),sTemp.c_str());
+  Serial.println("Body : " + String(body));
+  if(started){
+    if (inet.attachGPRS("internet", "", "")) Serial.println(F("status=ATTACHED"));
     else Serial.println(F("status=ERROR"));
     delay(1000);
     gsm.SimpleWriteln("AT+CIFSR");
@@ -121,26 +88,16 @@ void loop()
     Serial.println(numdata);  
     Serial.println(F("\nData received:")); 
     Serial.println(msg); 
+    memset(body,0,sizeof(body));
+    memset(msg,0,sizeof(msg));
     if (inet.dettachGPRS())
       Serial.println(F("status=DETTACHED"));
     else Serial.println(F("status=ERROR"));
   }
-    isOn[6] = 1;
-  }
-  if(currTime - step8Time >= step8Interval){
-    for(int i=0; i<8; i++){
-      isOn[i] = 0;
-    }
-    step1Time = currTime;
-    step2Time = currTime;
-    step3Time = currTime;
-    step4Time = currTime;
-    step5Time = currTime;
-    step6Time = currTime;
-    step7Time = currTime;
-    step8Time = currTime;
-    resetFunc();
-  }
+  digitalWrite(8, 0);
+  delay(2000);
+  digitalWrite(8,1);
+  delay(300000);
 }
 
 void readLocation(){
