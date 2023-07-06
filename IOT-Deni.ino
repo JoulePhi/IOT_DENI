@@ -8,7 +8,7 @@ int numdata;
 char inSerial[50];
 int i=0;
 boolean started=false;
-char body[64];
+char body[80];
 
 // RTC
 #include "uRTCLib.h"
@@ -41,18 +41,28 @@ float temp = 0,measured = 0, ph = 0,ecRes = 0;
 #define delayReadEc 500
 #define delaySaveData 5000
 
+// BATTERY
+float battVoltage = 0 , battPercentage = 0;
+
+// SD CARD
+#include <SPI.h>
+#include <SD.h>
+File myFile;
+#define CS_PIN 4
 
 void setup()
 {
   Serial.begin(9600);
   Serial.println(F("Starting!"));
   pinMode(8, OUTPUT);
-  digitalWrite(8, 0);
-  delay(2000);
-  digitalWrite(8,1);
+  resetSim();
   URTCLIB_WIRE.begin();
   sensors.begin();
   ec.begin();
+  if (!SD.begin(CS_PIN)) {
+    Serial.println(F("initialization failed!"));
+    while (1);
+  }
   
 }
 void(* resetFunc) (void) = 0;
@@ -74,8 +84,25 @@ void loop()
   delay(500);
   rtc.refresh();
   delay(1000);
-  sprintf(body, "[[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]]", loc.c_str(),getNowDate().c_str(),getNowTime().c_str(),sPh.c_str(),sec.c_str(),sTemp.c_str());
+  sprintf(body, "[[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]]",
+  loc.c_str(),
+  getNowDate().c_str(),
+  getNowTime().c_str(),
+  sPh.c_str(),sec.c_str(),
+  sTemp.c_str(),
+  String(battVoltage).c_str()
+  );
   Serial.println("Body : " + String(body));
+  myFile = SD.open("data.txt", FILE_WRITE);
+  if (myFile) {
+    Serial.print(F("Writing to data.txt..."));
+    myFile.println(body);
+    myFile.close();
+    Serial.println(F("done."));
+  } else {
+    // if the file didn't open, print an error:
+    Serial.println(F("error opening test.txt"));
+  }
   if(started){
     if (inet.attachGPRS("internet", "", "")) Serial.println(F("status=ATTACHED"));
     else Serial.println(F("status=ERROR"));
@@ -94,10 +121,12 @@ void loop()
       Serial.println(F("status=DETTACHED"));
     else Serial.println(F("status=ERROR"));
   }
-  digitalWrite(8, 0);
-  delay(2000);
-  digitalWrite(8,1);
+  gsm.SimpleWriteln("AT+CSCLK=1");
   delay(300000);
+  resetSim();
+  gsm.SimpleWriteln("AT");
+  gsm.SimpleWriteln("AT+CSCLK=0");
+  delay(1000);
 }
 
 void readLocation(){
@@ -133,4 +162,16 @@ void readEc(){
   }
   sec = String(ecRes,2);
   Serial.println("EC : " + sec);
+}
+
+void readBattery(){
+  float rawAnalog = analogRead(A3);
+  battVoltage= rawAnalog * (5.0 / 1023.0);
+  battPercentage = (battVoltage/4.2) * 100;
+}
+
+void resetSim(){
+  digitalWrite(8, 0);
+  delay(2000);
+  digitalWrite(8,1);
 }
