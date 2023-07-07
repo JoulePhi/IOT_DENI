@@ -1,14 +1,13 @@
+#include <ArduinoJson.h>
 // SIM800L
-#include "SIM900.h"
-#include <SoftwareSerial.h>
-#include "inetGSM.h"
-InetGSM inet;
-char msg[64];
-int numdata;
-char inSerial[50];
-int i=0;
-boolean started=false;
-char body[80];
+#include <Http.h>
+#include "uRTCLib.h"
+#define RST_PIN 8
+#define RX_PIN 10 
+#define TX_PIN 9
+
+const char BEARER[] PROGMEM = "internet";
+
 
 // RTC
 #include "uRTCLib.h"
@@ -32,146 +31,190 @@ DFRobot_EC ec;
 int pHSense = A0;
 
 // VARIABLES
-String loc,sTemp, sPh, sec;
-float temp = 0,measured = 0, ph = 0,ecRes = 0;
 
+
+char date[10];
+char time[10];
 #define delayReadLocaation 500
 #define delayReadTemp 500
 #define delayReadPh 500
 #define delayReadEc 500
 #define delaySaveData 5000
-
 // BATTERY
-float battVoltage = 0 , battPercentage = 0;
 
-// SD CARD
+
+// SDCARD
+
 #include <SPI.h>
 #include <SD.h>
 File myFile;
-#define CS_PIN 4
 
+char response[32];
+char body[100];
+char phs[10];
+char ecs[10];
+char temps[10];
+char batt[10];
 void setup()
 {
   Serial.begin(9600);
-  Serial.println(F("Starting!"));
-  pinMode(8, OUTPUT);
-  resetSim();
   URTCLIB_WIRE.begin();
   sensors.begin();
   ec.begin();
-  if (!SD.begin(CS_PIN)) {
-    Serial.println(F("initialization failed!"));
-    while (1);
-  }
-  
+  pinMode(8, OUTPUT);
+  pinMode(4, OUTPUT);
+  resetSim();
+  Serial.println(F("Starting!"));
+   
 }
-void(* resetFunc) (void) = 0;
 void loop()
 {
-  if (gsm.begin(2400)){
-    Serial.println(F("\nstatus=READY"));
-    started=true;  
-  }else Serial.println(F("\nstatus=IDLE"));
+  Serial.println(F("Connecting..."));
   rtc.refresh();
-  delay(500);
-  readLocation();
-  delay(500);
+  delay(2000);
   readTemp();
-  delay(500);
+  delay(2000);
   readPh();
-  delay(500);
-  readEc();
-  delay(500);
+  delay(2000);
+  readEcs();
+  delay(2000);
+  readBattery();
+  delay(2000);
   rtc.refresh();
+  getNowDate();
+  getNowTime();
   delay(1000);
   sprintf(body, "[[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"]]",
-  loc.c_str(),
-  getNowDate().c_str(),
-  getNowTime().c_str(),
-  sPh.c_str(),sec.c_str(),
-  sTemp.c_str(),
-  String(battVoltage).c_str()
+  "100",
+  date,
+  time,
+  phs,
+  ecs,
+  temps,
+  batt
   );
-  Serial.println("Body : " + String(body));
-  myFile = SD.open("data.txt", FILE_WRITE);
-  if (myFile) {
-    Serial.print(F("Writing to data.txt..."));
-    myFile.println(body);
-    myFile.close();
-    Serial.println(F("done."));
-  } else {
-    // if the file didn't open, print an error:
-    Serial.println(F("error opening test.txt"));
-  }
-  if(started){
-    if (inet.attachGPRS("internet", "", "")) Serial.println(F("status=ATTACHED"));
-    else Serial.println(F("status=ERROR"));
+  Serial.print(F("Body : ") );
+  Serial.println(body);
+  delay(3000);
+  int i = 0;
+  SPI.begin();
+  while(true){
+    bool sd = SD.begin(4);
+    if (!sd) {
+      Serial.println(F("initialization failed!"));
+    }
     delay(1000);
-    gsm.SimpleWriteln("AT+CIFSR");
-    delay(5000);
-    gsm.WhileSimpleRead();
-    numdata=inet.httpPOST("v1.nocodeapi.com", 443, "/datadeni/google_sheets/xzDjIQomcfxkFnkz?tabId=Sheet1",body, msg, 128);
-    Serial.println(F("\nNumber of data received:"));
-    Serial.println(numdata);  
-    Serial.println(F("\nData received:")); 
-    Serial.println(msg); 
-    memset(body,0,sizeof(body));
-    memset(msg,0,sizeof(msg));
-    if (inet.dettachGPRS())
-      Serial.println(F("status=DETTACHED"));
-    else Serial.println(F("status=ERROR"));
+    clearSD();
+    i++;
+    if(i > 10 || sd){
+      break;
+    }
   }
-  gsm.SimpleWriteln("AT+CSCLK=1");
-  delay(300000);
-  resetSim();
-  gsm.SimpleWriteln("AT");
-  gsm.SimpleWriteln("AT+CSCLK=0");
-  delay(1000);
+  int u = 0;
+  while(true){
+    myFile = SD.open("data.txt", FILE_WRITE);
+    if (myFile) {
+      Serial.print(F("Writing to data.txt..."));
+      myFile.println(body);
+      myFile.close();
+      Serial.println(F("done."));
+      break;
+    } else {
+      u++;
+      Serial.println(F("error opening data.txt"));
+    }
+    if(u > 5){
+      break;
+    }
+    delay(1000);
+  }
+  HTTP http(9600, RX_PIN, TX_PIN, RST_PIN);
+  Result result;
+  result = http.connect(BEARER);
+  Serial.print(F("HTTP connect: "));
+  Serial.println(result);
+  delay(2000);
+  result = http.post("https://v1.nocodeapi.com/datadeni/google_sheets/xzDjIQomcfxkFnkz?tabId=Sheet1", body, response);
+  Serial.print(F("HTTP POST: "));
+  Serial.println(result);
+  if (result == SUCCESS)
+  {
+    Serial.println(response);
+  }else{
+    Serial.print(F("Error : "));
+    Serial.println(response);
+  }
+  Serial.print(F("HTTP disconnect: "));
+  Serial.print(http.disconnect());
+  memset(body,0,sizeof(body));
+  memset(response,0,sizeof(response));
+  memset(date,0,sizeof(date));
+  memset(time,0,sizeof(time));
+  memset(phs,0,sizeof(phs));
+  memset(ecs,0,sizeof(ecs));
+  memset(temps,0,sizeof(temps));
+  memset(batt,0,sizeof(batt));
+  delay(240000);
 }
 
 void readLocation(){
-  Serial.println(F("READING LOCATION"));
-  loc = "107.685840,-6.913760";
-  Serial.println(loc);
+  
 }
-
 void readTemp(){
+  float temp = 0.0;
   Serial.println(F("READING TEMPERATURE"));
-  for(int i=0; i < 10; i++){
-    sensors.requestTemperatures(); 
-    temp = sensors.getTempCByIndex(0);  
-    delay(500);
-  }
-  sTemp = String(temp,2);
-  Serial.println("Temp = " + sTemp);
+  sensors.requestTemperatures(); 
+  temp = sensors.getTempCByIndex(0);  
+  dtostrf(temp,2,2,temps);
+  Serial.print(F("Temp = "));
+  Serial.println(temps);
 }
 
 void readPh(){
+  float measured = 0.0, ph = 0.0;
   Serial.println(F("MEASURING PH"));
   measured = measure(10);
   ph = calculatePh(measured);
-  sPh = String(ph);
-  Serial.println("Ph : " + sPh);
+  dtostrf(ph,2,2,phs);
+  Serial.print(F("Ph = "));
+  Serial.println(phs);
 }
 
-void readEc(){
+void readEcs(){
+  float ecRes = 0.0;
   Serial.println(F("CALCULATING EC"));
-  for(int i=0; i < 10; i++){
-    ecRes = readEc(temp);  
-    delay(500);
-  }
-  sec = String(ecRes,2);
-  Serial.println("EC : " + sec);
+  float temp = 0.0;
+  sensors.requestTemperatures(); 
+  temp = sensors.getTempCByIndex(0);  
+  ecRes = readEc(temp);  
+  dtostrf(ecRes,2,2,ecs);
+  Serial.print(F("EC = "));
+  Serial.println(ecs);
 }
 
 void readBattery(){
+  float battVoltage = 0 , battPercentage = 0;
   float rawAnalog = analogRead(A3);
   battVoltage= rawAnalog * (5.0 / 1023.0);
   battPercentage = (battVoltage/4.2) * 100;
+  dtostrf(battPercentage,2,2,batt);
 }
-
 void resetSim(){
   digitalWrite(8, 0);
   delay(2000);
   digitalWrite(8,1);
+}
+
+
+void clearSD()
+{
+  byte sd = 0;
+  digitalWrite(4, LOW);
+  while (sd != 255)
+  {
+    sd = SPI.transfer(255);
+    Serial.print(F("sd="));
+    Serial.println(sd);
+  }
+  digitalWrite(4, HIGH);
 }

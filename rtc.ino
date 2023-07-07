@@ -1,18 +1,6 @@
-String getNowDate(){
-  String date = "";
-  date += String(rtc.year());
-  date += "/";
-  date += String(rtc.month());
-  date += "/";
-  date += String(rtc.day());
-  return date;
+void getNowDate(){
+  sprintf(date, "%i/%i/%i",rtc.day(),rtc.month(),rtc.year());
 }
-String getNowTime(){
-  String time = "";
-  time += String(rtc.hour());
-  time += ":";
-  time += String(rtc.minute());
-  time += ":";
-  time += String(rtc.second());
-  return time;
+void getNowTime(){
+  sprintf(time, "%i:%i:%i",rtc.hour(),rtc.minute(),rtc.second());
 }
